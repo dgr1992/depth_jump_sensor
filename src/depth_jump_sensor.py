@@ -5,6 +5,7 @@ import numpy as np
 import time
 import math
 import threading
+import os
 
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
@@ -43,6 +44,8 @@ class GapSensor:
         self.update_frequence = 90
 
         self.debug_to_file = True
+
+        self._remove_debug_files()
 
         self._init_publishers()
         self._init_subscribers()
@@ -109,6 +112,22 @@ class GapSensor:
         if self.odom_available:
             self._process_range_data(data, self.robot_move_forwards, self.robot_move_backwards, self.robot_yaw)
         
+    def _remove_debug_files(self):
+        depth_jumps = "depth_jumps.csv"
+        if os.path.exists(depth_jumps):
+            os.remove(depth_jumps)
+
+        depth_jumps = "dj_1.csv"
+        if os.path.exists(depth_jumps):
+            os.remove(depth_jumps)
+
+        depth_jumps = "dj_2.csv"
+        if os.path.exists(depth_jumps):
+            os.remove(depth_jumps)
+
+        depth_jumps = "scan.csv"
+        if os.path.exists(depth_jumps):
+            os.remove(depth_jumps)
 
     def run(self):
         angle_change = 0
@@ -271,12 +290,12 @@ class GapSensor:
         
         return depth_jumps
 
-    def _update(self, depth_jumps_last, depth_jumps_two_scans, depth_jumps_single_scan, shift, robot_move_forwards, robot_move_backwards):
+    def _update(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan, shift, robot_move_forwards, robot_move_backwards):
         # rotation
         if shift > 0:
-            depth_jumps_last = self._correction_robot_rotation(depth_jumps_last, 0, len(depth_jumps_last), 1, depth_jumps_two_scans, depth_jumps_single_scan)
+            depth_jumps_last = self._correction_robot_rotation(depth_jumps_last, 0, len(depth_jumps_last), 1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
         elif shift < 0:      
-            depth_jumps_last = self._correction_robot_rotation(depth_jumps_last, len(depth_jumps_last) - 1, -1, -1, depth_jumps_two_scans, depth_jumps_single_scan)
+            depth_jumps_last = self._correction_robot_rotation(depth_jumps_last, len(depth_jumps_last) - 1, -1, -1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
         
         # forwards backwards  
         #if self.robot_move_forwards or self.robot_move_backwards:
@@ -284,51 +303,45 @@ class GapSensor:
 
         return depth_jumps_last
 
-    def _correction_robot_rotation(self, depth_jumps, start_index, end_index, increment, array_detected_depth_jumps, depth_jumps_single_scan):
+    def _correction_robot_rotation(self, depth_jumps, start_index, end_index, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
         for i in range(start_index, end_index, increment):
-            if array_detected_depth_jumps[i % len(array_detected_depth_jumps)] == 1:
-                # find corresponding position of depth jump at t-1
+            # detected depth jump using scan_{t-1} - scan_{t}
+            if depth_jumps_detected_from_two_scans[i % len(depth_jumps_detected_from_two_scans)] == 1:
+                index = i
                 index_old = None
-                for j in range(1, 2):
-                    if depth_jumps[(i + increment * j) % len(depth_jumps)] == 1:
-                        index_old = i + increment * j
-                        break
-
-                if index_old != None:
-                    index_old = index_old % len(array_detected_depth_jumps)
-                    # move
-                    depth_jumps[i % len(array_detected_depth_jumps)] = depth_jumps[index_old]
-                    if depth_jumps[i % len(array_detected_depth_jumps)] < 8:
-                        depth_jumps[i % len(array_detected_depth_jumps)] += 1
-                    depth_jumps[index_old] = 0
-                else:
-                    # add
-                    depth_jumps[i] = 1
 
                 # check if marking is at closest point using depth_jumps_single_scan
-                if depth_jumps[i] > 0 and depth_jumps_single_scan[i] == 0:
-                    if depth_jumps_single_scan[(i + increment) % len(depth_jumps_single_scan)] == 1:
-                        depth_jumps[(i + increment) % len(depth_jumps_single_scan)] = depth_jumps[i]
-                        depth_jumps[i] = 0
-                    elif depth_jumps_single_scan[(i - increment) % len(depth_jumps_single_scan)] == 1:
-                        depth_jumps[(i - increment) % len(depth_jumps_single_scan)] = depth_jumps[i]
-                        depth_jumps[i] = 0
+                if depth_jumps_detected_from_single_scan[index] == 0:
+                    if depth_jumps_detected_from_single_scan[(index + increment) % len(depth_jumps_detected_from_single_scan)] == 1:
+                        index = (index + increment) % len(depth_jumps_detected_from_single_scan)
+                    elif depth_jumps_detected_from_single_scan[(index - increment) % len(depth_jumps_detected_from_single_scan)] == 1:
+                        index = (index - increment) % len(depth_jumps_detected_from_single_scan)
+
+                # find corresponding position of depth jump at t-1
+                for j in range(0, 3):
+                    if depth_jumps[(index + increment * j) % len(depth_jumps)] > 0:
+                        index_old = (index + increment * j) % len(depth_jumps)
+                        break
+                
+                if index_old != None:
+                    # move
+                    depth_jumps[index] = depth_jumps[index_old]
+                    if depth_jumps[index] < 8:
+                        depth_jumps[index] += 1
+                    if index_old != index:
+                        depth_jumps[index_old] = 0
+                else:
+                    # add
+                    depth_jumps[index] = 1
             else:
                 if depth_jumps[i] > 0:
-                    if depth_jumps_single_scan[i] == 1:
+                    # check depth jump from t - 1 is visible in single scan analysis
+                    if depth_jumps_detected_from_single_scan[i] == 1:
                         if depth_jumps[i] < 8:
                             depth_jumps[i] += 1
                     # Depth jumps get removed over time. If at t -1 a depth jump was detected and at time t no depth jump then decrease.
                     else:
                         depth_jumps[i] -= 1
-
-            """
-            if depth_jumps[i] > 0 and (array_detected_depth_jumps[i - 1] == 1 or array_detected_depth_jumps[i] == 1 or array_detected_depth_jumps[(i + 1) % len(array_detected_depth_jumps)] == 1):
-                depth_jumps[i] += 1
-            # Depth jumps get removed over time. If at t -1 a depth jump was detected and at time t no depth jump then decrease.
-            elif depth_jumps[i] > 0 and array_detected_depth_jumps[i - 1] == 0 and array_detected_depth_jumps[i] == 0 and array_detected_depth_jumps[(i + 1) % len(array_detected_depth_jumps)] == 0:
-                depth_jumps[i] -= 1
-            """
             
         return depth_jumps
 
