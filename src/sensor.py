@@ -83,6 +83,9 @@ class DepthJumpSensor:
         self.odom_available = True
 
     def _receive_twist(self, data):
+        """
+        Receive twist information
+        """
         twist = Twist()
         twist = data
 
@@ -142,6 +145,12 @@ class DepthJumpSensor:
     
     def _process(self, scan, robot_move, robot_yaw):
         """
+        Starts the process of determing and updating the depth jumps using the given parameters.
+
+        Parameters:
+        scan (Scan): laser scan information to process
+        rotation (int): rotation direction of robot for given scan
+        robot_yaw (int): yaw of robot for given scan
         """
         self.lock.acquire()
         try:
@@ -189,6 +198,11 @@ class DepthJumpSensor:
 
     def _get_rotation_direction(self, robot_yaw):
         """
+        Get the current rotation direction of the robot.
+        
+        Parameters:
+        robot_yaw (float): yaw of the robot in degree
+
         Returns:
         rotation (int): +1 -> left; -1 -> right
         """
@@ -212,6 +226,15 @@ class DepthJumpSensor:
         return rotation
 
     def _calc_angle_change(self, robot_yaw):
+        """
+        Calculate the angle change between last angle and current angel.
+
+        Parameters:
+        robot_yaw (float): yaw of the robot in degree
+
+        Returns:
+        angle_change (float): angel change in degree
+        """
         angle_change = 0
         # detect jump 359 <-> 0
         if robot_yaw > 350 and self.robot_yaw_old < 10:
@@ -286,6 +309,20 @@ class DepthJumpSensor:
         return depth_jumps
 
     def _update(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan, rotation, robot_move):
+        """
+        Update the depth jumps from t - 1 to t by checking the rotation and movement
+
+        Parameters:
+        depth_jumps_last (int[]): depth jumps at t - 1 
+        depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+        rotation (int): rotation direction of robot
+        robot_move (int): movement direction (forward / backwords)
+
+        Returns:
+        depth_jumps_last (int[]): updated depth jumps
+        """
+
         # rotation
         if rotation > 0:
             depth_jumps_last = self._correction(depth_jumps_last, 0, len(depth_jumps_last), 1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
@@ -301,6 +338,21 @@ class DepthJumpSensor:
         return depth_jumps_last
 
     def _correction(self, depth_jumps, start_index, end_index, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
+        """
+        Corrects the last state of the depth_jumps to the current for the given angle.
+
+        Parameters:
+        depth_jumps_last (int[]): depth jumps at t - 1 
+        start_index (int): angle at which correction shall start
+        end_index (int): angle at which correction shall stop
+        increment (int): the increment to go towards the end index
+        depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+
+        Returns:
+        depth_jumps_last (int[]): updated depth jumps
+        """
+
         for i in range(start_index, end_index, increment):
             # detected depth jump using scan_{t-1} - scan_{t}
             if depth_jumps_detected_from_two_scans[i % len(depth_jumps_detected_from_two_scans)] == 1:
@@ -347,6 +399,18 @@ class DepthJumpSensor:
         return depth_jumps     
 
     def _correction_forward(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
+        """
+        Correction of backwards movement.
+
+        Parameters: 
+        depth_jumps_last (int[]): depth jumps at t - 1 
+        depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+
+        Return:
+        depth_jumps_last (int[]): updated depth jumps
+        """
+
         # 0 -> 179
         start = 0
         end = len(depth_jumps_last) / 2
@@ -362,6 +426,17 @@ class DepthJumpSensor:
         return depth_jumps_last
 
     def _correction_backwards(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
+        """
+        Correction of backwards movement.
+
+        Parameters: 
+        depth_jumps_last (int[]): depth jumps at t - 1 
+        depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+
+        Return:
+        depth_jumps_last (int[]): updated depth jumps
+        """
         # 180 -> 0
         start = len(depth_jumps_last) / 2
         end = -1
@@ -378,6 +453,13 @@ class DepthJumpSensor:
 
     def _publish_data(self, depth_jumps, range_data, rotation, movement):
         """
+        Publish depth jump information.
+
+        Parameters:
+        depth_jumps (int[]): 0 = no depth jump , 1 = depth jump
+        range_data (floag[]): the according range data to the depth jump result
+        rotation (int): rotation direction of robot, 1 = left, -1 = right
+        movement (int): movement of robot; 1 = forward, -1 = backwards
         """
         djmsg = DepthJump() 
         djmsg.depth_jumps = depth_jumps
