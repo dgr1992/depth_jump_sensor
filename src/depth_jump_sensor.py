@@ -298,8 +298,8 @@ class GapSensor:
             depth_jumps_last = self._correction_robot_rotation(depth_jumps_last, len(depth_jumps_last) - 1, -1, -1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
         
         # forwards backwards  
-        #if self.robot_move_forwards or self.robot_move_backwards:
-        #    self._correction_forward_backwards(depth_jumps_last, depth_jumps_new, robot_move_forwards, robot_move_backwards)
+        if self.robot_move_forwards or self.robot_move_backwards:
+            depth_jumps_last = self._correction_forward_backwards(depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan, robot_move_forwards, robot_move_backwards)
 
         return depth_jumps_last
 
@@ -345,28 +345,97 @@ class GapSensor:
             
         return depth_jumps
 
-    def _check_move_merge_disappear(self, depth_jumps, index_old, index_new):
-        if index_new != None:
-            if depth_jumps[index_new] == 0:
-                # move
-                self._discontinuity_moved(index_old, index_new)
-            else:
-                # check if merge or split near
-                split = False
-                count = 0
-                for i in range(index_old - 2, (index_old + 3) % len(self.filtered_gaps)):
-                    if depth_jumps[i] != 0:
-                        split = True
-                        count = self.gnt_root.depth_jumps[i].critical_event_count
+    def _correction_drift_still_stand(self, array_detected_depth_jumps):
+        for i in range(0, 360):
+            if ((self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0)):                
+                index_new = None
+                increment = 0
 
-                if not split:
-                    # merge
-                    self._discontinuity_merge(index_old, index_new)
-                else:
-                    print('split just happened ' + str(count))          
-        else:
-            # disappear
-            depth_jumps = 0
+                if array_detected_depth_jumps[i - 1] == 1:
+                    index_new = i - 1
+                    increment = -1
+                elif array_detected_depth_jumps[(i + 1) % len(array_detected_depth_jumps)] == 1:
+                    index_new = i + 1
+                    increment = +1
+
+                if index_new != None:
+                    index = index_new % len(array_detected_depth_jumps)
+                    
+                    # if on new position already node then move this aswell
+                    if self.gnt_root.depth_jumps[index] != None and self.gnt_root.depth_jumps[index].move_direction == self.gnt_root.depth_jumps[i].move_direction:
+                        self._correction_robot_rotation(index_new, index_new + (abs(index_new - i) + 2) * increment, increment, array_detected_depth_jumps)
+
+                    self._check_move_merge_disappear(i, index)
+
+    def _correction_forward_backwards(self, array_detected_depth_jumps, robot_move_forwards, robot_move_backwards):
+        if robot_move_forwards:
+            self._correction_forward(array_detected_depth_jumps)
+        if robot_move_backwards:
+            self._correction_backwards(array_detected_depth_jumps)
+
+    def _correction_forward(self, depth_jumps):
+        # 0 -> 179
+        for i in range(0, len(array_detected_depth_jumps) / 2):
+            index_new = None
+
+            # move, merge, disappear
+            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
+                index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 3)
+                if index_new == None:
+                    index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 1)
+                self._check_move_merge_disappear(i, index_new)
+
+        # 359 -> 180
+        for i in range(len(array_detected_depth_jumps) - 1, len(array_detected_depth_jumps) / 2, -1):
+            index_new = None
+
+            # move, merge, disappear
+            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
+                index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 3)
+                if index_new == None:
+                    index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 1)
+                self._check_move_merge_disappear(i, index_new)
+
+    def _correction_backwards(self, array_detected_depth_jumps):
+        # 180 -> 0
+        for i in range(len(array_detected_depth_jumps) / 2, -1, -1):
+            index_new = None
+            # move, merge, disappear
+            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
+                index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 3)
+                if index_new == None:
+                    index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 1)
+                self._check_move_merge_disappear(i, index_new)
+
+        # 180 -> 359
+        for i in range(len(array_detected_depth_jumps) / 2, len(array_detected_depth_jumps)):
+            index_new = None
+            # move, merge, disappear
+            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
+                index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 3)
+                if index_new == None:
+                    index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 1)
+                self._check_move_merge_disappear(i, index_new)
+    
+    def _search_x_degree_positiv(self, array_detected_depth_jumps, index, degree_search):
+        index_new = None
+
+        for increment in range(1, degree_search + 1):
+            if array_detected_depth_jumps[(index + increment)%len(self.gnt_root.depth_jumps)] == 1:
+                index_new = (index + increment)%len(self.gnt_root.depth_jumps)
+                break
+
+        return index_new
+
+    def _search_x_degree_negativ(self, array_detected_depth_jumps, index, degree_search):
+        index_new = None
+
+        for decrement in range(1, degree_search + 1):
+            if array_detected_depth_jumps[index - decrement] == 1:
+                index_new = index - decrement
+                break
+
+        return index_new
 
 if __name__ == "__main__":
     try:
