@@ -10,10 +10,11 @@ import os
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
+from depth_jump_sensor.msg import DepthJump
 
 from gap_visualiser import GapVisualiser
 
-class GapSensor:
+class DepthJumpSensor:
 
     def __init__(self):
         rospy.init_node("depth_jump_sensor")
@@ -21,26 +22,22 @@ class GapSensor:
         self.lock = threading.Lock()
 
         self.robot_yaw = 0
-        self.robot_yaw_old = 0 
+        self.robot_yaw_old = 0
+        self.rotation_zero_count = 0
+        self.rotation_old = 0
         self.odom_available = False
-
-        self.robot_move_turning = False
-        self.robot_move_forwards = False
-        self.robot_move_backwards = False
+        self.robot_move = 0
         
         self.depth_jumps = []
         self.first = True
 
-        self.min_depth_jump = 0.55 # 0.75
+        self.min_depth_jump = 0.4 # 0.75
         self.max_r_to_depth_jump = 10 # 2.5
 
         self.scan = None
         self.scan_old = None
         self.scan_available = False
         
-        self.shift_zero_count = 0
-        self.shift_old = 0
-
         self.update_frequence = 90
 
         self.debug_to_file = True
@@ -54,7 +51,7 @@ class GapSensor:
         """
         Initialise publishers
         """
-        pass
+        self.pub_depth_jumps = rospy.Publisher('depth_jumps',DepthJump,queue_size=1)
 
     def _init_subscribers(self):
         """
@@ -88,21 +85,17 @@ class GapSensor:
     def _receive_twist(self, data):
         twist = Twist()
         twist = data
-        if twist.angular.z != 0:
-            self.robot_move_turning = True
-        else:
-            self.robot_move_turning = False
 
         if twist.linear.x != 0:
             if twist.linear.x > 0:
-                self.robot_move_forwards = True
-                self.robot_move_backwards = False
+                # forwards
+                self.robot_move = 1
             else:
-                self.robot_move_forwards = False
-                self.robot_move_backwards = True
+                # backwars
+                self.robot_move = -1
         else:
-            self.robot_move_forwards = False
-            self.robot_move_backwards = False
+            # stop
+            self.robot_move = 0
 
     def _receive_scan(self, data):
         """
@@ -110,7 +103,7 @@ class GapSensor:
         """
         self.scan_available = True
         if self.odom_available:
-            self._process_range_data(data, self.robot_move_forwards, self.robot_move_backwards, self.robot_yaw)
+            self._process(data, self.robot_move, self.robot_yaw)
         
     def _remove_debug_files(self):
         depth_jumps = "depth_jumps.csv"
@@ -147,7 +140,7 @@ class GapSensor:
 
         gap_visualisation_gnt.close()
     
-    def _process_range_data(self, scan, robot_move_forwards, robot_move_backwards, robot_yaw):
+    def _process(self, scan, robot_move, robot_yaw):
         """
         """
         self.lock.acquire()
@@ -177,44 +170,46 @@ class GapSensor:
                         tmp = np.asarray(dj_2)
                         np.savetxt(f3, tmp.reshape(1, tmp.shape[0]), delimiter=",")
 
-                shift = self._calculate_shift(robot_yaw)
+                rotation = self._get_rotation_direction(robot_yaw)
 
-                # first: check for movement or appear in dj_2
-                # second: dj_2 contains information where change happen. Use dj_1 to find nearest point and also for stand still
-                self.depth_jumps = self._update(self.depth_jumps, dj_2, dj_1, shift, self.robot_move_forwards, self.robot_move_backwards)
+                self.depth_jumps = self._update(self.depth_jumps, dj_2, dj_1, rotation, robot_move)
                 if self.debug_to_file:
                     with open('depth_jumps.csv','ab') as f4:
                         tmp = np.asarray(self.depth_jumps)
                         np.savetxt(f4, tmp.reshape(1, tmp.shape[0]), delimiter=",")
+
+                # publish
+                self._publish_data(self.depth_jumps, self.scan.ranges, rotation, robot_move)
+
         except Exception as ex:
             print(ex)
             print(traceback.format_exc())
         
         self.lock.release()
 
-    def _calculate_shift(self, robot_yaw):
+    def _get_rotation_direction(self, robot_yaw):
         """
         Returns:
-        shift (int): +1 -> rotation right; -1 -> rotation left
+        rotation (int): +1 -> left; -1 -> right
         """
-        shift = self._calc_angle_change(robot_yaw)
+        rotation = self._calc_angle_change(robot_yaw)
         self.robot_yaw_old = robot_yaw
 
-        if abs(shift) < 0.1:
-            self.shift_zero_count += 1
-            if self.shift_zero_count < 5:
-                shift = self.shift_old
+        if abs(rotation) < 0.1:
+            self.rotation_zero_count += 1
+            if self.rotation_zero_count < 5:
+                rotation = self.rotation_old
             else:
-                shift = 0
+                rotation = 0
         else:
-            self.shift_zero_count = 0
-            if shift < 0:
-                shift = -1
+            self.rotation_zero_count = 0
+            if rotation < 0:
+                rotation = -1
             else:
-                shift = +1
-            self.shift_old = shift
+                rotation = +1
+            self.rotation_old = rotation
 
-        return shift
+        return rotation
 
     def _calc_angle_change(self, robot_yaw):
         angle_change = 0
@@ -290,20 +285,22 @@ class GapSensor:
         
         return depth_jumps
 
-    def _update(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan, shift, robot_move_forwards, robot_move_backwards):
+    def _update(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan, rotation, robot_move):
         # rotation
-        if shift > 0:
-            depth_jumps_last = self._correction_robot_rotation(depth_jumps_last, 0, len(depth_jumps_last), 1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
-        elif shift < 0:      
-            depth_jumps_last = self._correction_robot_rotation(depth_jumps_last, len(depth_jumps_last) - 1, -1, -1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
+        if rotation > 0:
+            depth_jumps_last = self._correction(depth_jumps_last, 0, len(depth_jumps_last), 1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
+        elif rotation < 0:      
+            depth_jumps_last = self._correction(depth_jumps_last, len(depth_jumps_last) - 1, -1, -1, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
         
-        # forwards backwards  
-        if self.robot_move_forwards or self.robot_move_backwards:
-            depth_jumps_last = self._correction_forward_backwards(depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan, robot_move_forwards, robot_move_backwards)
+        # forwards backwards movement
+        if robot_move > 0:
+            depth_jumps_last = self._correction_forward(depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
+        elif robot_move < 0:
+            depth_jumps_last = self._correction_backwards(depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
         return depth_jumps_last
 
-    def _correction_robot_rotation(self, depth_jumps, start_index, end_index, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
+    def _correction(self, depth_jumps, start_index, end_index, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
         for i in range(start_index, end_index, increment):
             # detected depth jump using scan_{t-1} - scan_{t}
             if depth_jumps_detected_from_two_scans[i % len(depth_jumps_detected_from_two_scans)] == 1:
@@ -323,6 +320,10 @@ class GapSensor:
                         index_old = (index + increment * j) % len(depth_jumps)
                         break
                 
+                # corresponding position might be in the opposite direction
+                if index_old == None and depth_jumps[(index - increment) % len(depth_jumps)] > 0:
+                    index_old = (index - increment) % len(depth_jumps)
+
                 if index_old != None:
                     # move
                     depth_jumps[index] = depth_jumps[index_old]
@@ -343,103 +344,51 @@ class GapSensor:
                     else:
                         depth_jumps[i] -= 1
             
-        return depth_jumps
+        return depth_jumps     
 
-    def _correction_drift_still_stand(self, array_detected_depth_jumps):
-        for i in range(0, 360):
-            if ((self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0)):                
-                index_new = None
-                increment = 0
-
-                if array_detected_depth_jumps[i - 1] == 1:
-                    index_new = i - 1
-                    increment = -1
-                elif array_detected_depth_jumps[(i + 1) % len(array_detected_depth_jumps)] == 1:
-                    index_new = i + 1
-                    increment = +1
-
-                if index_new != None:
-                    index = index_new % len(array_detected_depth_jumps)
-                    
-                    # if on new position already node then move this aswell
-                    if self.gnt_root.depth_jumps[index] != None and self.gnt_root.depth_jumps[index].move_direction == self.gnt_root.depth_jumps[i].move_direction:
-                        self._correction_robot_rotation(index_new, index_new + (abs(index_new - i) + 2) * increment, increment, array_detected_depth_jumps)
-
-                    self._check_move_merge_disappear(i, index)
-
-    def _correction_forward_backwards(self, array_detected_depth_jumps, robot_move_forwards, robot_move_backwards):
-        if robot_move_forwards:
-            self._correction_forward(array_detected_depth_jumps)
-        if robot_move_backwards:
-            self._correction_backwards(array_detected_depth_jumps)
-
-    def _correction_forward(self, depth_jumps):
+    def _correction_forward(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
         # 0 -> 179
-        for i in range(0, len(array_detected_depth_jumps) / 2):
-            index_new = None
-
-            # move, merge, disappear
-            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
-                index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 3)
-                if index_new == None:
-                    index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 1)
-                self._check_move_merge_disappear(i, index_new)
+        start = 0
+        end = len(depth_jumps_last) / 2
+        increment = 1
+        depth_jumps_last = self._correction(depth_jumps_last, start, end, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
         # 359 -> 180
-        for i in range(len(array_detected_depth_jumps) - 1, len(array_detected_depth_jumps) / 2, -1):
-            index_new = None
+        start = len(depth_jumps_last) - 1
+        end = len(depth_jumps_last) / 2
+        increment = -1
+        depth_jumps_last = self._correction(depth_jumps_last, start, end, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
-            # move, merge, disappear
-            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
-                index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 3)
-                if index_new == None:
-                    index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 1)
-                self._check_move_merge_disappear(i, index_new)
+        return depth_jumps_last
 
-    def _correction_backwards(self, array_detected_depth_jumps):
+    def _correction_backwards(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
         # 180 -> 0
-        for i in range(len(array_detected_depth_jumps) / 2, -1, -1):
-            index_new = None
-            # move, merge, disappear
-            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
-                index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 3)
-                if index_new == None:
-                    index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 1)
-                self._check_move_merge_disappear(i, index_new)
+        start = len(depth_jumps_last) / 2
+        end = -1
+        increment = -1
+        depth_jumps_last = self._correction(depth_jumps_last, start, end, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
         # 180 -> 359
-        for i in range(len(array_detected_depth_jumps) / 2, len(array_detected_depth_jumps)):
-            index_new = None
-            # move, merge, disappear
-            if (self.gnt_root.depth_jumps[i] != None and array_detected_depth_jumps[i] == 0):
-                index_new = self._search_x_degree_positiv(array_detected_depth_jumps, i, 3)
-                if index_new == None:
-                    index_new = self._search_x_degree_negativ(array_detected_depth_jumps, i, 1)
-                self._check_move_merge_disappear(i, index_new)
-    
-    def _search_x_degree_positiv(self, array_detected_depth_jumps, index, degree_search):
-        index_new = None
+        start = len(depth_jumps_last) / 2
+        end = len(depth_jumps_last)
+        increment = 1
+        depth_jumps_last = self._correction(depth_jumps_last, start, end, increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
-        for increment in range(1, degree_search + 1):
-            if array_detected_depth_jumps[(index + increment)%len(self.gnt_root.depth_jumps)] == 1:
-                index_new = (index + increment)%len(self.gnt_root.depth_jumps)
-                break
+        return depth_jumps_last
 
-        return index_new
-
-    def _search_x_degree_negativ(self, array_detected_depth_jumps, index, degree_search):
-        index_new = None
-
-        for decrement in range(1, degree_search + 1):
-            if array_detected_depth_jumps[index - decrement] == 1:
-                index_new = index - decrement
-                break
-
-        return index_new
+    def _publish_data(self, depth_jumps, range_data, rotation, movement):
+        """
+        """
+        djmsg = DepthJump() 
+        djmsg.depth_jumps = depth_jumps
+        djmsg.range_date = range_data
+        djmsg.rotation = rotation
+        djmsg.liniear_x = movement
+        self.pub_depth_jumps.publish(djmsg)
 
 if __name__ == "__main__":
     try:
-        gs = GapSensor()
+        gs = DepthJumpSensor()
         gs.run()
     except Exception as ex:
         print(ex.message)
