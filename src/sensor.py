@@ -463,7 +463,7 @@ class DepthJumpSensor:
         """
         djmsg = DepthJump() 
         djmsg.depth_jumps = depth_jumps
-        djmsg.range_date = range_data
+        djmsg.range_data = range_data
         djmsg.rotation = rotation
         djmsg.liniear_x = movement
         self.pub_depth_jumps.publish(djmsg)
