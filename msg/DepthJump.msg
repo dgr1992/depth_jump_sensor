@@ -1,3 +1,4 @@
+std_msgs/Header header
 int32[] depth_jumps
 float32[] range_data
 int32 rotation

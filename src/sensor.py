@@ -7,6 +7,7 @@ import math
 import threading
 import os
 
+from std_msgs.msg import Header
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
@@ -29,10 +30,16 @@ class DepthJumpSensor:
         self.robot_move = 0
         
         self.depth_jumps = []
+        self.depth_jumps_valid = []
         self.first = True
 
         self.min_depth_jump = 0.4 # 0.75
         self.max_r_to_depth_jump = 10 # 2.5
+
+        self.max_depth_jump_recognition_count = 20
+        self.depth_jump_recognition_threshold = 10
+        self.recognition_decrease_rate = 1
+        self.recognition_increase_rate = 1
 
         self.scan = None
         self.scan_old = None
@@ -40,7 +47,10 @@ class DepthJumpSensor:
         
         self.update_frequence = 90
 
-        self.debug_to_file = True
+        self.debug_to_file = False
+
+        self.int32_max = 4294967295
+        self.seq = 0
 
         self._remove_debug_files()
 
@@ -129,17 +139,13 @@ class DepthJumpSensor:
         angle_change = 0
         last_time = 0
 
-        gap_visualisation_gnt = GapVisualiser('GNT')
+        gap_visualisation_gnt = GapVisualiser('Depth Jump Sensor')
 
         while not rospy.is_shutdown():
 
             if self.odom_available and self.scan_available and (time.time() - last_time) > (1.0/self.update_frequence):
-                jumps = np.zeros(len(self.depth_jumps))
-                for i in range(0, len(self.depth_jumps)):
-                    if self.depth_jumps[i] >= 2:
-                        jumps[i] = 1
                 last_time = time.time()
-                gap_visualisation_gnt.draw_gaps(jumps)
+                gap_visualisation_gnt.draw_gaps(self.depth_jumps_valid)
 
         gap_visualisation_gnt.close()
     
@@ -157,6 +163,7 @@ class DepthJumpSensor:
             if self.first:
                 self.scan = scan
                 self.depth_jumps = np.zeros(len(scan.ranges))
+                self.depth_jumps_valid = np.zeros(len(scan.ranges))
                 self.first = False
             else:
                 if self.debug_to_file:
@@ -187,14 +194,29 @@ class DepthJumpSensor:
                         tmp = np.asarray(self.depth_jumps)
                         np.savetxt(f4, tmp.reshape(1, tmp.shape[0]), delimiter=",")
 
+                self.depth_jumps_valid = self._get_valid_depth_jumps(self.depth_jump_recognition_threshold)
+
                 # publish
-                self._publish_data(self.depth_jumps, self.scan.ranges, rotation, robot_move)
+                self._publish_data(self.depth_jumps_valid, self.scan.ranges, rotation, robot_move)
 
         except Exception as ex:
             print(ex)
             print(traceback.format_exc())
         
         self.lock.release()
+
+    def _get_valid_depth_jumps(self, min_times_detected):
+        """
+        From the array of depth jumps use all depth jums that were detected x times.
+
+        Parameters:
+        min_times_detected (int): Threshold for detection that determines valid
+        """
+        jumps = np.zeros(len(self.depth_jumps))
+        for i in range(0, len(self.depth_jumps)):
+            if self.depth_jumps[i] >= min_times_detected:
+                jumps[i] = 1
+        return jumps
 
     def _get_rotation_direction(self, robot_yaw):
         """
@@ -379,8 +401,8 @@ class DepthJumpSensor:
                 if index_old != None:
                     # move
                     depth_jumps[index] = depth_jumps[index_old]
-                    if depth_jumps[index] < 8:
-                        depth_jumps[index] += 1
+                    if depth_jumps[index] < self.max_depth_jump_recognition_count:
+                        depth_jumps[index] += self.recognition_increase_rate
                     if index_old != index:
                         depth_jumps[index_old] = 0
                 else:
@@ -390,11 +412,13 @@ class DepthJumpSensor:
                 if depth_jumps[i] > 0:
                     # check depth jump from t - 1 is visible in single scan analysis
                     if depth_jumps_detected_from_single_scan[i] == 1:
-                        if depth_jumps[i] < 8:
-                            depth_jumps[i] += 1
+                        if depth_jumps[i] < self.max_depth_jump_recognition_count:
+                            depth_jumps[i] += self.recognition_increase_rate
                     # Depth jumps get removed over time. If at t -1 a depth jump was detected and at time t no depth jump then decrease.
                     else:
-                        depth_jumps[i] -= 1
+                        depth_jumps[i] -= self.recognition_decrease_rate
+                else:
+                    depth_jumps[i] = 0
             
         return depth_jumps     
 
@@ -461,7 +485,13 @@ class DepthJumpSensor:
         rotation (int): rotation direction of robot, 1 = left, -1 = right
         movement (int): movement of robot; 1 = forward, -1 = backwards
         """
-        djmsg = DepthJump() 
+        if self.seq == self.int32_max:
+            self.seq = 0
+        self.seq += 1
+
+        djmsg = DepthJump()
+        djmsg.header.stamp = rospy.Time.now()
+        djmsg.header.seq = self.seq 
         djmsg.depth_jumps = depth_jumps
         djmsg.range_data = range_data
         djmsg.rotation = rotation
