@@ -47,7 +47,7 @@ class DepthJumpSensor:
         
         self.update_frequence = 90
 
-        self.debug_to_file = False
+        self.debug_to_file = True
 
         self.int32_max = 4294967295
         self.seq = 0
@@ -61,7 +61,7 @@ class DepthJumpSensor:
         """
         Initialise publishers
         """
-        self.pub_depth_jumps = rospy.Publisher('depth_jumps',DepthJump,queue_size=1)
+        self.pub_depth_jumps = rospy.Publisher('depth_jumps',DepthJump,queue_size=15)
 
     def _init_subscribers(self):
         """
@@ -389,11 +389,12 @@ class DepthJumpSensor:
                         index = (index - increment) % len(depth_jumps_detected_from_single_scan)
 
                 # find corresponding position of depth jump at t-1
-                for j in range(0, 3):
+                for j in range(0, 4):
                     if depth_jumps[(index + increment * j) % len(depth_jumps)] > 0:
                         index_old = (index + increment * j) % len(depth_jumps)
                         break
                 
+
                 # corresponding position might be in the opposite direction
                 if index_old == None and depth_jumps[(index - increment) % len(depth_jumps)] > 0:
                     index_old = (index - increment) % len(depth_jumps)
