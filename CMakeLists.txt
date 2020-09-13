@@ -106,7 +106,7 @@ catkin_package(
   # INCLUDE_DIRS include
   LIBRARIES depth_jump_sensor
   CATKIN_DEPENDS rospy std_msgs
-  DEPENDS system_lib
+  DEPENDS
 )
 
 ###########
