@@ -47,9 +47,8 @@ class DepthJumpSensor:
         
         self.update_frequence = 90
 
-        self.debug_to_file = True
+        self.debug_to_file = False
 
-        self.int32_max = 4294967295
         self.seq = 0
 
         self._remove_debug_files()
@@ -486,8 +485,6 @@ class DepthJumpSensor:
         rotation (int): rotation direction of robot, 1 = left, -1 = right
         movement (int): movement of robot; 1 = forward, -1 = backwards
         """
-        if self.seq == self.int32_max:
-            self.seq = 0
         self.seq += 1
 
         djmsg = DepthJump()
