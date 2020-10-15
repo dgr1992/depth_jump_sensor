@@ -56,6 +56,11 @@ class DepthJumpSensor:
 
         self.queue = []
 
+        self.scan_history = []
+        self.dj_1_history = []
+        self.dj_2_history = []
+        self.depth_jumps_history = []
+
         self._remove_debug_files()
 
         self._init_publishers()
@@ -169,6 +174,15 @@ class DepthJumpSensor:
                     self._process(scan, movement, robot_yaw, rotation)
 
         gap_visualisation_gnt.close()
+        
+        avg_processing = (self.sum_processing_time) / self.seq
+        print("Time avg process time: " + str(avg_processing) + " ms")
+
+        # save debug information
+        self._save_scan_history()
+        self._save_dj_1_history()
+        self._save_dj_2_history()
+        self._save_depth_jumps_history()
     
     def _process(self, scan, movement, robot_yaw, rotation):
         """
@@ -197,10 +211,11 @@ class DepthJumpSensor:
                         tmp = np.insert(tmp,0,rotation)
                         tmp = np.insert(tmp,0,movement)
                         tmp = np.insert(tmp,0,self.seq)
-                        np.savetxt(f1, tmp.reshape(1, tmp.shape[0]), delimiter=",")
-                end_file_write = time.time()
-                write_time = (end_file_write - start_file_write) * 1000
-                print("Time to write file: " + str(write_time) + " ms")
+                        self.scan_history.append(tmp)
+                
+                #end_file_write = time.time()
+                #write_time = (end_file_write - start_file_write) * 1000
+                #print("Time to write file: " + str(write_time) + " ms")
 
                 self.scan_old = self.scan
                 self.scan = scan
@@ -212,7 +227,7 @@ class DepthJumpSensor:
                         tmp = np.insert(tmp,0,rotation)
                         tmp = np.insert(tmp,0,movement)
                         tmp = np.insert(tmp,0,self.seq)
-                        np.savetxt(f2, tmp.reshape(1, tmp.shape[0]), delimiter=",")
+                        self.dj_1_history.append(tmp)
 
                 dj_2 = self._find_depth_jumps_using_two_scans(self.scan.ranges, self.scan_old.ranges)
                 if self.debug_to_file:
@@ -221,7 +236,7 @@ class DepthJumpSensor:
                         tmp = np.insert(tmp,0,rotation)
                         tmp = np.insert(tmp,0,movement)
                         tmp = np.insert(tmp,0,self.seq)
-                        np.savetxt(f3, tmp.reshape(1, tmp.shape[0]), delimiter=",")
+                        self.dj_2_history.append(tmp)
 
                 self.depth_jumps = self._update(self.depth_jumps, dj_2, dj_1, rotation, movement)
                 if self.debug_to_file:
@@ -230,7 +245,7 @@ class DepthJumpSensor:
                         tmp = np.insert(tmp,0,rotation)
                         tmp = np.insert(tmp,0,movement)
                         tmp = np.insert(tmp,0,self.seq)
-                        np.savetxt(f4, tmp.reshape(1, tmp.shape[0]), delimiter=",")
+                        self.depth_jumps_history.append(tmp)
 
                 self.depth_jumps_valid = self._get_valid_depth_jumps()
 
@@ -241,8 +256,7 @@ class DepthJumpSensor:
                 process_time = (end - start) * 1000
 
                 self.sum_processing_time += process_time
-                avg_processing = (self.sum_processing_time) / self.seq
-
+                #avg_processing = (self.sum_processing_time) / self.seq
                 #print("Time to process scan: " + str(process_time) + " ms")
                 #print("Time avg process time: " + str(avg_processing) + " ms")
         except Exception as ex:
@@ -596,14 +610,14 @@ class DepthJumpSensor:
         start = 0
         end = len(depth_jumps_last) / 2
         for_increment = 1
-        search_increment = 1#-1
+        search_increment = -1#-1
         depth_jumps_last = self._correction(depth_jumps_last, start, end, for_increment, search_increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
         # 359 -> 180
         start = len(depth_jumps_last) - 1
         end = len(depth_jumps_last) / 2
         for_increment = -1
-        search_increment = -1#1
+        search_increment = 1#1
         depth_jumps_last = self._correction(depth_jumps_last, start, end, for_increment, search_increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
         return depth_jumps_last
@@ -624,14 +638,14 @@ class DepthJumpSensor:
         start = len(depth_jumps_last) / 2
         end = -1
         for_increment = -1
-        search_increment = -1#1
+        search_increment = 1#1
         depth_jumps_last = self._correction(depth_jumps_last, start, end, for_increment, search_increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
         # 180 -> 359
         start = len(depth_jumps_last) / 2
         end = len(depth_jumps_last)
         for_increment = 1
-        search_increment = 1#-1
+        search_increment = -1#-1
         depth_jumps_last = self._correction(depth_jumps_last, start, end, for_increment, search_increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan)
 
         return depth_jumps_last
@@ -656,6 +670,42 @@ class DepthJumpSensor:
         djmsg.liniear_x = movement
         self.pub_depth_jumps.publish(djmsg)
         self.seq += 1
+
+    def _save_scan_history(self):
+        """
+        Save scan history to file.
+        """
+        if self.debug_to_file:
+            with open('scan.csv','ab') as f1:
+                for tmp in self.scan_history:
+                    np.savetxt(f1, tmp.reshape(1, tmp.shape[0]), delimiter=",")
+
+    def _save_dj_1_history(self):
+        """
+        Save depth jump from one scan history.
+        """
+        if self.debug_to_file:
+            with open('dj_1.csv','ab') as f2:
+                for tmp in self.dj_1_history:
+                    np.savetxt(f2, tmp.reshape(1, tmp.shape[0]), delimiter=",")
+
+    def _save_dj_2_history(self):
+        """
+        Save depth jump from two scan history.
+        """
+        if self.debug_to_file:
+            with open('dj_2.csv','ab') as f2:
+                for tmp in self.dj_2_history:
+                    np.savetxt(f2, tmp.reshape(1, tmp.shape[0]), delimiter=",")
+
+    def _save_depth_jumps_history(self):
+        """
+        Save depth jumps history.
+        """
+        if self.debug_to_file:
+            with open('depth_jumps.csv','ab') as f2:
+                for tmp in self.depth_jumps_history:
+                    np.savetxt(f2, tmp.reshape(1, tmp.shape[0]), delimiter=",")
 
 if __name__ == "__main__":
     try:
