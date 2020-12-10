@@ -52,7 +52,7 @@ class DepthJumpSensor:
         self.update_frequence = 90
         self.sum_processing_time = 0
 
-        self.debug_to_file = True
+        self.debug_to_file = False
 
         self.seq = 1
 
@@ -176,8 +176,6 @@ class DepthJumpSensor:
                     #gap_visualisation_single_scan.draw_gaps(self.depth_discontinuities_single_scan)
 
                 if self.queue:
-                    #scan, movement, robot_yaw, rotation = self.queue.pop(0)
-                    #self._process(scan, movement, robot_yaw, rotation)
                     scan, movement, robot_yaw = self.queue.pop(0)
                     self._process(scan, movement, robot_yaw)
 
@@ -193,14 +191,14 @@ class DepthJumpSensor:
         self._save_dj_2_history()
         self._save_depth_jumps_history()
     
-    def _process(self, scan, movement, robot_yaw):#, rotation):
+    def _process(self, scan, movement, robot_yaw):
         """
-        Starts the process of determing and updating the depth jumps using the given parameters.
-
-        Parameters:
-        scan (Scan): laser scan information to process
-        rotation (int): rotation direction of robot for given scan
-        robot_yaw (int): yaw of robot for given scan
+        Starts the process of determing and updating the depth jumps using the given parameters. 
+        
+        Parameters: 
+        scan (Scan): laser scan information to process 
+        rotation (int): rotation direction of robot for given scan 
+        robot_yaw (int): yaw of robot for given scan 
         """
         self.lock.acquire()
         try:
@@ -222,10 +220,6 @@ class DepthJumpSensor:
                         tmp = np.insert(tmp,0,self.seq)
                         self.scan_history.append(tmp)
                 
-                #end_file_write = time.time()
-                #write_time = (end_file_write - start_file_write) * 1000
-                #print("Time to write file: " + str(write_time) + " ms")
-
                 self.scan_old = self.scan
                 self.scan = scan
 
@@ -266,9 +260,6 @@ class DepthJumpSensor:
                 process_time = (end - start) * 1000
 
                 self.sum_processing_time += process_time
-                #avg_processing = (self.sum_processing_time) / self.seq
-                #print("Time to process scan: " + str(process_time) + " ms")
-                #print("Time avg process time: " + str(avg_processing) + " ms")
         except Exception as ex:
             print(ex)
             print(traceback.format_exc())
@@ -277,13 +268,13 @@ class DepthJumpSensor:
 
     def _get_valid_depth_jumps(self):
         """
-        From the array of depth jumps use all depth jums that were detected x times.
-
-        Parameters:
-        min_times_detected (int): Threshold for detection that determines valid
-
-        Returns:
-        discontinuities (int[]): Array with same lenght as depth_jumps and discontinuities marked with 1
+        From the array of depth jumps use all depth jums that were detected x times. 
+        
+        Parameters: 
+        min_times_detected (int): Threshold for detection that determines valid 
+        
+        Returns: 
+        discontinuities (int[]): Array with same lenght as depth_jumps and discontinuities marked with 1 
         """
         discontinuities = np.zeros(len(self.depth_jumps))
         for i in range(0, len(self.depth_jumps)):
@@ -293,13 +284,13 @@ class DepthJumpSensor:
 
     def _get_rotation_direction(self, robot_yaw):
         """
-        Get the current rotation direction of the robot.
+        Get the current rotation direction of the robot. 
         
-        Parameters:
-        robot_yaw (float): yaw of the robot in degree
-
-        Returns:
-        rotation (int): +1 -> left; -1 -> right
+        Parameters: 
+        robot_yaw (float): yaw of the robot in degree 
+        
+        Returns: 
+        rotation (int): +1 -> left; -1 -> right 
         """
         rotation = self._calc_angle_change(robot_yaw)
         self.robot_yaw_old = robot_yaw
@@ -322,13 +313,13 @@ class DepthJumpSensor:
 
     def _calc_angle_change(self, robot_yaw):
         """
-        Calculate the angle change between last angle and current angel.
-
-        Parameters:
-        robot_yaw (float): yaw of the robot in degree
-
-        Returns:
-        angle_change (float): angel change in degree
+        Calculate the angle change between last angle and current angel. 
+        
+        Parameters: 
+        robot_yaw (float): yaw of the robot in degree 
+        
+        Returns: 
+        angle_change (float): angel change in degree 
         """
         angle_change = 0
         # detect jump 359 <-> 0
@@ -345,14 +336,14 @@ class DepthJumpSensor:
 
     def _find_depth_jumps_using_two_scans(self, scan, scan_old):
         """
-        Calculate depth jumps using scan_{t-1} and scan_{t}.
-
-        Parameters:
-        scan (float[]): range data from time t
-        scan_old (float[]): range data from time t-1
-
-        Returns:
-        depth_jumps (int[]): A 1 indicates a depth jump
+        Calculate depth jumps using scan_{t-1} and scan_{t}. 
+        
+        Parameters: 
+        scan (float[]): range data from time t 
+        scan_old (float[]): range data from time t-1 
+        
+        Returns: 
+        depth_jumps (int[]): A 1 indicates a depth jump 
         """
 
         scan = np.asarray(scan)
@@ -369,13 +360,13 @@ class DepthJumpSensor:
 
     def _find_depth_jumps_using_one_scan(self, scan):
         """
-        Caclulate depth jumps using only scan_{t}.
-
-        Parameters:
-        scan (float[]): range data from time t
-
-        Returns:
-        depth_jumps (int[]): A 1 indicates a depth jump
+        Caclulate depth jumps using only scan_{t}. 
+        
+        Parameters: 
+        scan (float[]): range data from time t 
+        
+        Returns: 
+        depth_jumps (int[]): A 1 indicates a depth jump 
         """
         depth_jumps = np.zeros((len(scan),), dtype=int)
         for angle in range(0, len(scan)):
@@ -397,26 +388,22 @@ class DepthJumpSensor:
             elif scan[angle] != np.inf and scan[(angle + 1) % 360] == np.inf:
                 #tmp_angle = angle
                 depth_jumps[angle] = 1
-
-            #if tmp_angle != -2 and scan[tmp_angle] < self.max_r_to_depth_jump:
-                # shortest r must be smaller then max distance
-            #    depth_jumps[tmp_angle] = 1
         
         return depth_jumps
 
     def _update(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan, rotation, robot_move):
         """
-        Update the depth jumps from t - 1 to t by checking the rotation and movement
-
-        Parameters:
+        Update the depth jumps from t - 1 to t by checking the rotation and movement 
+        
+        Parameters: 
         depth_jumps_last (int[]): depth jumps at t - 1 
         depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
-        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
-        rotation (int): rotation direction of robot
-        robot_move (int): movement direction (forward / backwords)
-
-        Returns:
-        depth_jumps_last (int[]): updated depth jumps
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t} 
+        rotation (int): rotation direction of robot 
+        robot_move (int): movement direction (forward / backwords) 
+        
+        Returns: 
+        depth_jumps_last (int[]): updated depth jumps 
         """
 
         # rotation
@@ -459,21 +446,20 @@ class DepthJumpSensor:
 
     def _correction(self, depth_jumps, start_index, end_index, for_increment, search_increment, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
         """
-        Corrects the last state of the depth_jumps to the current for the given angle.
+        Corrects the last state of the depth_jumps to the current for the given angle. 
 
-        Parameters:
+        Parameters: 
         depth_jumps (int[]): depth jumps at t - 1 
-        start_index (int): angle at which correction shall start
-        end_index (int): angle at which correction shall stop
-        incremfor_incrementent (int): the for_increment to go towards the end index
-        search_increment (int): the increment to use finding the previous position of the depth jump
+        start_index (int): angle at which correction shall start 
+        end_index (int): angle at which correction shall stop 
+        incremfor_incrementent (int): the for_increment to go towards the end index 
+        search_increment (int): the increment to use finding the previous position of the depth jump 
         depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
-        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t} 
 
-        Returns:
-        depth_jumps_last (int[]): updated depth jumps
+        Returns: 
+        depth_jumps_last (int[]): updated depth jumps 
         """
-
         for i in range(start_index, end_index, for_increment):
             # detected depth jump using scan_{t-1} - scan_{t}
             if depth_jumps_detected_from_two_scans[i % len(depth_jumps_detected_from_two_scans)] == 1:
@@ -481,7 +467,8 @@ class DepthJumpSensor:
                 index_old_1 = None
                 index_old_2 = None
                 split_detect = False
-                #rospy.logdebug("move - seq:" + str(self.seq) + " detect dj2 index=" + str(index))
+
+                rospy.logdebug("move - seq:" + str(self.seq) + " detect dj2 index=" + str(index))
                 # check if marking is at closest point using depth_jumps_single_scan
                 if depth_jumps_detected_from_single_scan[index] == 0:
                     if depth_jumps_detected_from_single_scan[(index + search_increment) % len(depth_jumps_detected_from_single_scan)] == 1:
@@ -489,21 +476,7 @@ class DepthJumpSensor:
                     elif depth_jumps_detected_from_single_scan[(index - search_increment) % len(depth_jumps_detected_from_single_scan)] == 1:
                         index = (index - search_increment) % len(depth_jumps_detected_from_single_scan)
                 
-                #rospy.logdebug("move - seq:" + str(self.seq) + " closest point index=" + str(index))
-
-                
-                """
-                # find corresponding position of depth jump at t-1
-                for j in range(0, 4):
-                    if depth_jumps[(index + search_increment * j) % len(depth_jumps)] > 0:
-                        index_old = (index + search_increment * j) % len(depth_jumps)
-                        break
-                
-
-                # corresponding position might be in the opposite direction
-                if index_old == None and depth_jumps[(index - search_increment) % len(depth_jumps)] > 0:
-                    index_old = (index - search_increment) % len(depth_jumps)
-                """
+                rospy.logdebug("move - seq:" + str(self.seq) + " closest point index=" + str(index))
 
                 # corresponding position of depth jump at t-1
                 for j in range(0, 4):
@@ -531,16 +504,7 @@ class DepthJumpSensor:
                         if index_old_2 != index:
                             depth_jumps[index_old_2] = 0
                     elif split_detect and not merge_detect:
-                        # split
-                        
-                        #index_2 = None
-                        # find the second index of the split
-                        #if depth_jumps_detected_from_single_scan[(index + 2) % len(depth_jumps_detected_from_single_scan)] == 1:
-                        #    index_2 = (index + 2) % len(depth_jumps_detected_from_single_scan)
-                        #elif depth_jumps_detected_from_single_scan[(index - 2) % len(depth_jumps_detected_from_single_scan)] == 1:
-                        #    index_2 = (index - 2) % len(depth_jumps_detected_from_single_scan)
-                        # find the index that got splitted
-                        
+                        # split                       
                         index_old = None
                         if index_old_1 != None:
                             index_old = index_old_1
@@ -576,13 +540,13 @@ class DepthJumpSensor:
 
             else:
                 if depth_jumps[i] > 0:
-                    #rospy.logdebug("no depth jump position change - seq:" + str(self.seq) + " - index=" + str(i))
+                    rospy.logdebug("no depth jump position change - seq:" + str(self.seq) + " - index=" + str(i))
                     # check depth jump from t - 1 is visible in single scan analysis
                     if depth_jumps_detected_from_single_scan[i] == 1:
                         if depth_jumps[i] < self.max_depth_jump_recognition_count:
                             depth_jumps[i] += self.recognition_increase_rate
-                    # Depth jumps get removed over time. If at t -1 a depth jump was detected and at time t no depth jump then decrease.
                     else:
+                        # Depth jumps get removed over time. If at t -1 a depth jump was detected and at time t no depth jump then decrease.
                         depth_jumps[i] -= self.recognition_decrease_rate
                 else:
                     depth_jumps[i] = 0
@@ -591,6 +555,18 @@ class DepthJumpSensor:
 
     def _check_for_split(self, depth_jumps, index, depth_jumps_detected_from_single_scan, index_old_1, index_old_2):
         """
+        Determines by if new detected depth discontinuity at index origins from a split of index_old_1 or index_old_2. 
+
+        Parameters: 
+        depth_jumps (int[]): depth jumps at t - 1 
+        index (int): angele where the depth discontinuity is detected at time t 
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t} 
+        index_old_1 (int): first angle of depth discontinuity at time t-1 that might have split 
+        index_old_2 (int): second angle of depth discontinuity at time t-1 that might have split 
+
+        Returns:
+        split_detect (bool): tells if a split is detected
+        index_2 (int): second angle of split
         """
         # check if there is an other gap detected with in 3 degrees, distance is either 2 or 3 degrees to next gap
         split_detect = False
@@ -618,6 +594,15 @@ class DepthJumpSensor:
 
     def _check_for_merge(self, index_old_1, index_old_2, index_2):
         """
+        Checks if the depth discontinuity at index_old_1 and index_old_2 merged into index_2. 
+
+        Parameter: 
+        index_old_1 (int): first angle of depth discontinuity at time t-1 that might have split 
+        index_old_2 (int): second angle of depth discontinuity at time t-1 that might have split 
+        index_2 (int): angle of depth discontinuity resulting from the merge
+
+        Returns: 
+        merge_detect (bool): 
         """
         #two deph_jumps with in a distance of 2 degree to one is a merge
         merge_detect = False
@@ -635,36 +620,16 @@ class DepthJumpSensor:
         Checks if there no consecutive neighbour depth discontinuities with in 3 degrees. 
 
         Paremeters:
-        index (int): index of discontinuity that needs to be checked for neighbours
+        index (int): index of discontinuity that needs to be checked for neighbours 
         depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
-        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t} 
 
         Returns:
-        no_neighbours (bool): true if no neighbours where detected
+        no_neighbours (bool): true if no neighbours where detected 
         """
         neighbour_count_single_scan = self._get_direct_neighbour_number(depth_jumps_detected_from_single_scan, index, 3)
-        
-        #direct_neighbours_single_scan = True
-        #i = 1
-        #while direct_neighbours_single_scan and i < 3:
-        #    a = depth_jumps_detected_from_single_scan[(index - i) % len(depth_jumps_detected_from_single_scan)] == 1
-        #    b = depth_jumps_detected_from_single_scan[(index + i) % len(depth_jumps_detected_from_single_scan)] == 1
-        #    direct_neighbours_single_scan &= a or b
-        #    if direct_neighbours_single_scan:
-        #        neighbour_count_single_scan += 1
-        #    i += 1
 
         neighbour_count_two_scan = self._get_direct_neighbour_number(depth_jumps_detected_from_two_scans, index, 3)
-        
-        #direct_neighbours_two_scan = True
-        #i = 1
-        #while direct_neighbours_two_scan and i < 3:
-        #    a = depth_jumps_detected_from_two_scans[(index - i) % len(depth_jumps_detected_from_two_scans)] == 1
-        #    b = depth_jumps_detected_from_two_scans[(index + i) % len(depth_jumps_detected_from_two_scans)] == 1
-        #    direct_neighbours_two_scan &= a or b
-        #    if direct_neighbours_two_scan:
-        #        neighbour_count_two_scan += 1
-        #    i += 1
         
         if neighbour_count_single_scan == 0 and neighbour_count_two_scan == 0:
             return True
@@ -673,15 +638,15 @@ class DepthJumpSensor:
 
     def _get_direct_neighbour_number(self, discontinuities, index, range):
         """
-        Checks if there no consecutive neighbour depth discontinuities with in the given range.
+        Checks if there no consecutive neighbour depth discontinuities with in the given range. 
         
-        Parameters:
-        discontinuities (int[]): The array of depth discontinuities
-        index (int): index of discontinuity that needs to be checked for neighbours
-        range (int): number of neigbour elements from index to check
+        Parameters: 
+        discontinuities (int[]): The array of depth discontinuities 
+        index (int): index of discontinuity that needs to be checked for neighbours 
+        range (int): number of neigbour elements from index to check 
 
-        Returns:
-        neighbour_count (int):
+        Returns: 
+        neighbour_count (int): number of the detected neighbours
         """
         neighbour_count = 0
         direct_neighbours = True
@@ -697,15 +662,15 @@ class DepthJumpSensor:
 
     def _correction_forward(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
         """
-        Correction of backwards movement.
+        Correction of backwards movement. 
 
         Parameters: 
         depth_jumps_last (int[]): depth jumps at t - 1 
         depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
-        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t} 
 
-        Return:
-        depth_jumps_last (int[]): updated depth jumps
+        Return: 
+        depth_jumps_last (int[]): updated depth jumps 
         """
 
         # 0 -> 179
@@ -726,15 +691,15 @@ class DepthJumpSensor:
 
     def _correction_backwards(self, depth_jumps_last, depth_jumps_detected_from_two_scans, depth_jumps_detected_from_single_scan):
         """
-        Correction of backwards movement.
+        Correction of backwards movement. 
 
         Parameters: 
         depth_jumps_last (int[]): depth jumps at t - 1 
         depth_jumps_detected_from_two_scans (int[]): depth jumps calculated from scan_{t} and scan_{t - 1} 
-        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t}
+        depth_jumps_detected_from_single_scan (int[]): depth jumps calculated from scan_{t} 
 
-        Return:
-        depth_jumps_last (int[]): updated depth jumps
+        Return: 
+        depth_jumps_last (int[]): updated depth jumps 
         """
         # 180 -> 0
         start = len(depth_jumps_last) / 2
@@ -754,13 +719,13 @@ class DepthJumpSensor:
 
     def _publish_data(self, depth_jumps, range_data, rotation, movement):
         """
-        Publish depth jump information.
+        Publish depth jump information. 
 
-        Parameters:
-        depth_jumps (int[]): 0 = no depth jump , 1 = depth jump
-        range_data (floag[]): the according range data to the depth jump result
-        rotation (int): rotation direction of robot, 1 = left, -1 = right
-        movement (int): movement of robot; 1 = forward, -1 = backwards
+        Parameters: 
+        depth_jumps (int[]): 0 = no depth jump , 1 = depth jump 
+        range_data (floag[]): the according range data to the depth jump result 
+        rotation (int): rotation direction of robot, 1 = left, -1 = right 
+        movement (int): movement of robot; 1 = forward, -1 = backwards 
         """
         
         djmsg = DepthJump()
